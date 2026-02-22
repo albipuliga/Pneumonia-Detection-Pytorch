@@ -12,3 +12,6 @@ wheels/
 
 # Data
 data/
+
+# Files
+src/resnet18_colab.ipynb

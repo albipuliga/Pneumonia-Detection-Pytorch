@@ -1,12 +1,19 @@
 [project]
 name = "pneumonia-detection-pytorch"
 version = "0.1.0"
-description = "Add your description here"
+description = "A pneumonia detection model using PyTorch"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "matplotlib>=3.10.8",
     "pillow>=12.1.1",
     "scikit-learn>=1.8.0",
     "torch>=2.10.0",
     "torchvision>=0.25.0",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.2.0",
+    "tdqm>=0.0.1",
 ]

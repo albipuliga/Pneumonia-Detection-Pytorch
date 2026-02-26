@@ -13,7 +13,7 @@ kaggle datasets download -d paultimothymooney/chest-xray-pneumonia -p ./data
 unzip ./data/chest-xray-pneumonia.zip -d ./data
 ```
 
-Expected folder structure:
+Expected raw folder structure:
 
 ```text
 data/
@@ -33,19 +33,25 @@ data/
 ![Class distribution across splits](src/outputs/assets/class_distribution.png)
 
 Notes:
-- The training data is class-imbalanced.
-- The validation split is very small (`n=16`), so validation metrics can be noisy.
+- The original Kaggle split is class-imbalanced.
+- The original validation split is very small, so the notebook now regenerates patient-level train/val/test splits before training.
 
 ## Data Pipeline
 
 ### 1. Dataset loading
-- A custom `PneumoniaDataset` class loads images from class folders.
+- A custom `PneumoniaDataset` class loads images from indexed records.
 - Labels are encoded as:
   - `0` for `NORMAL`
   - `1` for `PNEUMONIA`
-- Images are converted to RGB and transformed with torchvision.
+- Images are converted to RGB and transformed with `torchvision`.
 
-### 2. Augmentation and preprocessing
+### 2. Patient-level split regeneration
+- The notebook indexes all images from the raw dataset folders.
+- Patient IDs are inferred from filename conventions (for example `person###` for pneumonia files).
+- Train/validation/test splits are built at patient level (no patient appears in multiple splits).
+- Validation/test class presence is enforced, and pneumonia subtype coverage is validated when available.
+
+### 3. Augmentation and preprocessing
 
 Training transform:
 - `Resize(256, 256)`
@@ -63,17 +69,8 @@ Validation/test transform:
 
 ![Sample chest X-ray set](src/outputs/assets/sample_set.png)
 
-### 3. Imbalance handling
-- `WeightedRandomSampler` is used for the training loader based on inverse class frequency.
-- Class-weighted `CrossEntropyLoss` is also used.
-
-### 4. Training setup
-- Batch size: `32`
-- Learning rate: `1e-4`
-- Max epochs: `20`
-- Early stopping patience: `5`
-- Optimizer: `AdamW` (`weight_decay=1e-4`)
-- LR scheduler: `ReduceLROnPlateau` (`mode="max"`, `factor=0.5`, `patience=2`)
+### 4. Imbalance handling
+- Uses class-weighted `CrossEntropyLoss`.
 
 ## Model Architecture
 
@@ -89,29 +86,61 @@ Classification head:
   - `Dropout(p=0.3)`
   - `Linear(in_features=512, out_features=2)`
 
-## Results
+## Training Setup
 
-- Accuracy: `0.9279`
-- F1 score: `0.9413`
-- ROC-AUC: `0.9808`
-- PR-AUC: `0.9869`
-- Training run stopped early at epoch `6/20` with best recorded validation accuracy `1.0000` (on `16` validation images).
+- Batch size: `32`
+- Learning rate: `1e-4`
+- Max epochs: `20`
+- Early stopping patience: `5`
+- Optimizer: `AdamW` (`weight_decay=1e-4`)
+- LR scheduler: `ReduceLROnPlateau`
 
-Classification report:
+## Evaluation
 
-| Class | Precision | Recall | F1-score | Support |
-|---|---:|---:|---:|---:|
-| NORMAL | 0.88 | 0.93 | 0.91 | 234 |
-| PNEUMONIA | 0.96 | 0.93 | 0.94 | 390 |
-| Macro avg | 0.92 | 0.93 | 0.92 | 624 |
-| Weighted avg | 0.93 | 0.93 | 0.93 | 624 |
+The notebook evaluates with:
+- ROC-AUC
+- PR-AUC
+- Accuracy / F1
+- Sensitivity / Specificity / PPV / NPV
+- Brier score
+- Bootstrap confidence intervals
+
+Post-hoc calibration:
+- Temperature scaling is fit on validation logits after training.
+- Validation and test probabilities are recalibrated before threshold selection/evaluation.
+- Calibration quality is checked with validation NLL and Brier score (raw vs calibrated).
+
+Thresholding behavior:
+- The decision threshold is selected on the validation set using a high-sensitivity policy.
+- If the sensitivity target is not feasible, it falls back to best F1.
+
 
 ![Evaluation metrics and curves](src/outputs/assets/metrics.png)
 
-The notebook also includes:
-- normalized confusion matrix
-- ROC curve
-- precision-recall curve
+## Results
+
+- Learned temperature: `1.912755`
+- Validation NLL: `0.221162 -> 0.181493`
+- Validation Brier: `0.060714 -> 0.056551`
+- Selected threshold: `0.059` (`sensitivity_constrained`)
+
+Test metrics:
+
+| Metric | Value |
+|---|---:|
+| Accuracy | 0.9679 |
+| F1 | 0.9777 |
+| Sensitivity | 0.9826 |
+| Specificity | 0.9304 |
+| PPV | 0.9729 |
+| NPV | 0.9545 |
+| ROC-AUC | 0.9938 |
+| PR-AUC | 0.9976 |
+| Brier | 0.0625 |
+
+Class-wise report (support: `NORMAL=158`, `PNEUMONIA=402`):
+- NORMAL: precision `0.95`, recall `0.93`, F1 `0.94`
+- PNEUMONIA: precision `0.97`, recall `0.98`, F1 `0.98`
 
 ## Setup & Usage
 
